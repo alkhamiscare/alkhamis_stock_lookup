@@ -247,14 +247,32 @@ loadDB();
 
 // ---- CLOUDINARY UPLOAD ----
 async function uploadToCloudinary(file, modelName) {
+  // 🔒 Basic file validation
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('Image too large (max 5MB)');
+  }
+
   const fd = new FormData();
   fd.append('file', file);
   fd.append('upload_preset', UPLOAD_PRESET);
   fd.append('folder', 'footwear_catalog');
-  fd.append('public_id', `model_${modelName.replace(/[^a-zA-Z0-9]/g,'_')}`);
-  const res = await fetch(CLOUDINARY_URL, { method: 'POST', body: fd });
-  if (!res.ok) throw new Error('Upload failed');
+
+  // ✅ Prevent overwrite issue
+  fd.append('public_id', `model_${modelName}_${Date.now()}`);
+
+  const res = await fetch(CLOUDINARY_URL, {
+    method: 'POST',
+    body: fd
+  });
+
   const data = await res.json();
+
+  // ✅ Proper error handling (VERY IMPORTANT)
+  if (!res.ok) {
+    console.error('Cloudinary Error:', data);
+    throw new Error(data.error?.message || 'Upload failed');
+  }
+
   return data.secure_url;
 }
 
@@ -334,9 +352,9 @@ async function uploadImgForModel(model, input) {
     toast('✅ Image uploaded & saved!');
     doSearch();
   } catch(e) {
-    toast('❌ Upload failed. Check your internet.');
+    toast('❌ Upload failed. Check preset / file size.');
     btn.classList.remove('loading');
-    btn.innerHTML = `📷 Upload Image`;
+    btn.innerHTML = `📷 ${db[model].image ? 'Change' : 'Upload'} Image`;
   }
 }
 
