@@ -251,9 +251,15 @@ async function uploadToCloudinary(file, modelName) {
   fd.append('file', file);
   fd.append('upload_preset', UPLOAD_PRESET);
   fd.append('folder', 'footwear_catalog');
-  fd.append('public_id', `model_${modelName.replace(/[^a-zA-Z0-9]/g,'_')}`);
+  fd.append('public_id', `model_${modelName}_${Date.now()}`);
   const res = await fetch(CLOUDINARY_URL, { method: 'POST', body: fd });
-  if (!res.ok) throw new Error('Upload failed');
+const res = await fetch(CLOUDINARY_URL, { method: 'POST', body: fd });
+const data = await res.json();
+
+if (!res.ok) {
+  console.error('Cloudinary Error:', data);
+  throw new Error(data.error?.message || 'Upload failed');
+}
   const data = await res.json();
   return data.secure_url;
 }
