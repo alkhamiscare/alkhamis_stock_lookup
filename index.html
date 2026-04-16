@@ -247,18 +247,16 @@ loadDB();
 
 // ---- CLOUDINARY UPLOAD ----
 async function uploadToCloudinary(file, modelName) {
-  // 🔒 Basic file validation
-  if (file.size > 5 * 1024 * 1024) {
-    throw new Error('Image too large (max 5MB)');
-  }
-
   const fd = new FormData();
   fd.append('file', file);
   fd.append('upload_preset', UPLOAD_PRESET);
   fd.append('folder', 'footwear_catalog');
 
-  // ✅ Prevent overwrite issue
-  fd.append('public_id', `model_${modelName}_${Date.now()}`);
+  // 🔁 SAME ID = REPLACE OLD IMAGE
+  fd.append('public_id', `model_${modelName.replace(/[^a-zA-Z0-9]/g,'_')}`);
+
+  // ✅ FORCE REPLACE
+  fd.append('overwrite', 'true');
 
   const res = await fetch(CLOUDINARY_URL, {
     method: 'POST',
@@ -267,15 +265,13 @@ async function uploadToCloudinary(file, modelName) {
 
   const data = await res.json();
 
-  // ✅ Proper error handling (VERY IMPORTANT)
   if (!res.ok) {
-    console.error('Cloudinary Error:', data);
+    console.error(data);
     throw new Error(data.error?.message || 'Upload failed');
   }
 
   return data.secure_url;
 }
-
 // ---- TABS ----
 function tab(name, btn) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -347,7 +343,7 @@ async function uploadImgForModel(model, input) {
   btn.innerHTML = `<span class="spinner"></span> Uploading to Cloudinary...`;
   try {
     const url = await uploadToCloudinary(file, model);
-    db[model].image = url;
+    db[model].image = url + '?v=' + Date.now();
     saveDB();
     toast('✅ Image uploaded & saved!');
     doSearch();
@@ -526,7 +522,9 @@ async function saveProduct() {
       type:document.getElementById('fType').value.trim(),
       group:document.getElementById('fGroup').value.trim(),
       totalStock:parseFloat(document.getElementById('fStock').value)||0,
-      image:imgUrl!==null?imgUrl:(existing.image||null),
+      image: imgUrl
+        ? imgUrl + '?v=' + Date.now()
+        : (existing.image || null),
       colors:existing.colors||[], breakdown:existing.breakdown||[]
     };
     saveDB();
