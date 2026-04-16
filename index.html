@@ -1,233 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Footwear Catalog</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<style>
-  :root {
-    --bg: #fdf6ee;
-    --surface: #fff8f0;
-    --card: #ffffff;
-    --primary: #8B5E3C;
-    --primary-dark: #6e4a2e;
-    --accent: #c8955a;
-    --accent-light: #f0d9c0;
-    --text: #3a2a1a;
-    --text-muted: #8a7060;
-    --border: #e2cdb8;
-    --danger: #c0392b;
-    --success: #6aab6a;
-    --radius: 12px;
-    --shadow: 0 2px 12px rgba(139,94,60,0.10);
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
-
-  header { background: var(--primary); color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-  header .logo { font-size: 28px; }
-  header h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
-  header p { font-size: 12px; opacity: 0.8; }
-
-  nav { display: flex; background: var(--primary-dark); }
-  nav button { flex: 1; padding: 11px 8px; background: none; border: none; color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; border-bottom: 3px solid transparent; }
-  nav button.active { color: #fff; border-bottom-color: var(--accent); background: rgba(255,255,255,0.07); }
-  nav button:hover:not(.active) { background: rgba(255,255,255,0.05); color: #fff; }
-
-  main { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
-  .section { display: none; }
-  .section.active { display: block; }
-
-  .search-box { display: flex; gap: 10px; margin-bottom: 24px; }
-  .search-box input { flex: 1; padding: 12px 16px; border: 2px solid var(--border); border-radius: var(--radius); font-size: 15px; background: var(--card); color: var(--text); outline: none; transition: border .2s; }
-  .search-box input:focus { border-color: var(--accent); }
-  .search-box button { padding: 12px 20px; background: var(--primary); color: #fff; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 600; cursor: pointer; transition: background .2s; }
-  .search-box button:hover { background: var(--primary-dark); }
-
-  .result-card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; border: 1px solid var(--border); }
-  .result-card .img-area { width: 100%; max-height: 320px; object-fit: contain; background: var(--accent-light); display: block; }
-  .img-placeholder { background: var(--accent-light); height: 200px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--text-muted); font-size: 14px; }
-  .img-placeholder .icon { font-size: 48px; }
-  .result-body { padding: 20px; }
-  .model-title { font-size: 22px; font-weight: 700; color: var(--primary); margin-bottom: 4px; }
-  .brand-sub { font-size: 14px; color: var(--text-muted); margin-bottom: 16px; }
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
-  .info-item label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; }
-  .info-item p { font-size: 14px; font-weight: 600; color: var(--text); margin-top: 2px; }
-  .stock-badge { display: inline-block; background: var(--primary); color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 15px; font-weight: 700; margin-bottom: 16px; }
-  .colors-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-  .color-tag { background: var(--accent-light); color: var(--primary-dark); border-radius: 20px; padding: 3px 10px; font-size: 12px; font-weight: 600; }
-
-  .breakdown-toggle { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; font-size: 13px; color: var(--primary); cursor: pointer; margin-bottom: 10px; font-weight: 600; }
-  .breakdown-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 8px; }
-  .breakdown-table th { background: var(--accent-light); color: var(--primary-dark); padding: 8px 10px; text-align: left; font-size: 11px; text-transform: uppercase; }
-  .breakdown-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
-  .breakdown-table tr:last-child td { border: none; }
-
-  .upload-btn-wrap { margin-top: 12px; }
-  .upload-btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 18px; background: var(--accent-light); color: var(--primary-dark); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px dashed var(--accent); transition: background .2s; }
-  .upload-btn:hover { background: #e8c9a0; }
-  .upload-btn.loading { opacity: 0.7; pointer-events: none; }
-
-  .catalog-controls { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
-  .catalog-controls input { flex: 1; min-width: 180px; padding: 10px 14px; border: 2px solid var(--border); border-radius: var(--radius); font-size: 14px; background: var(--card); color: var(--text); outline: none; }
-  .catalog-controls input:focus { border-color: var(--accent); }
-  .catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
-  .cat-card { background: var(--card); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; box-shadow: var(--shadow); cursor: pointer; transition: transform .15s, box-shadow .15s; }
-  .cat-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(139,94,60,0.15); }
-  .cat-card img { width: 100%; height: 140px; object-fit: cover; background: var(--accent-light); display: block; }
-  .cat-card .no-img { width: 100%; height: 140px; background: var(--accent-light); display: flex; align-items: center; justify-content: center; font-size: 36px; }
-  .cat-info { padding: 10px 12px; }
-  .cat-info .model-no { font-weight: 700; font-size: 13px; color: var(--primary); }
-  .cat-info .brand { font-size: 12px; color: var(--text-muted); }
-  .cat-info .stock { font-size: 12px; font-weight: 600; color: var(--text); margin-top: 4px; }
-
-  .upload-zone { border: 2px dashed var(--accent); border-radius: var(--radius); padding: 36px 20px; text-align: center; background: var(--surface); cursor: pointer; transition: background .2s; }
-  .upload-zone:hover { background: var(--accent-light); }
-  .upload-zone .icon { font-size: 40px; margin-bottom: 10px; }
-  .upload-zone p { color: var(--text-muted); font-size: 14px; }
-  .upload-zone strong { color: var(--primary); }
-  .upload-info { background: var(--accent-light); border-radius: 10px; padding: 14px 18px; margin-top: 16px; font-size: 13px; color: var(--primary-dark); }
-  .upload-info ul { margin-top: 6px; padding-left: 18px; }
-  .upload-info li { margin-bottom: 4px; }
-
-  .manage-list { display: flex; flex-direction: column; gap: 10px; }
-  .manage-item { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: flex; align-items: center; gap: 14px; }
-  .manage-item img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; background: var(--accent-light); flex-shrink: 0; }
-  .manage-item .m-no-img { width: 56px; height: 56px; border-radius: 8px; background: var(--accent-light); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
-  .manage-item .m-info { flex: 1; }
-  .manage-item .m-info strong { font-size: 14px; color: var(--primary); }
-  .manage-item .m-info span { font-size: 12px; color: var(--text-muted); display: block; }
-  .manage-item .m-actions { display: flex; gap: 8px; }
-  .btn { padding: 7px 14px; border-radius: 8px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .2s; }
-  .btn:hover { opacity: 0.85; }
-  .btn-edit { background: var(--accent-light); color: var(--primary-dark); }
-  .btn-del { background: #fde8e6; color: var(--danger); }
-  .btn-primary { background: var(--primary); color: #fff; }
-
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; padding: 16px; }
-  .modal-overlay.open { display: flex; }
-  .modal { background: var(--card); border-radius: var(--radius); padding: 24px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
-  .modal h2 { font-size: 18px; color: var(--primary); margin-bottom: 18px; }
-  .form-group { margin-bottom: 14px; }
-  .form-group label { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 5px; }
-  .form-group input { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--bg); color: var(--text); outline: none; }
-  .form-group input:focus { border-color: var(--accent); }
-  .modal-actions { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
-  .btn-cancel { background: var(--accent-light); color: var(--primary-dark); }
-
-  /* Cloudinary upload progress */
-  .img-upload-status { font-size: 12px; margin-top: 6px; color: var(--text-muted); }
-  .img-preview { margin-top: 8px; max-width: 100%; max-height: 160px; border-radius: 8px; display: none; }
-
-  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--primary); color: #fff; padding: 12px 24px; border-radius: 24px; font-size: 14px; font-weight: 600; z-index: 200; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
-  .toast.show { display: block; animation: fadeup .3s; }
-  @keyframes fadeup { from { opacity:0; transform: translateX(-50%) translateY(10px); } to { opacity:1; transform: translateX(-50%) translateY(0); } }
-
-  .empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
-  .empty .icon { font-size: 48px; margin-bottom: 10px; }
-  .hidden { display: none !important; }
-
-  @media(max-width:500px) { .info-grid { grid-template-columns: 1fr; } .manage-item .m-actions { flex-direction: column; } }
-</style>
-</head>
-<body>
-
-<header>
-  <div class="logo">👟</div>
-  <div>
-    <h1>Footwear Catalog</h1>
-    <p>Stock Lookup & Product Manager</p>
-  </div>
-</header>
-
-<nav>
-  <button class="active" onclick="tab('search',this)">🔍 Search</button>
-  <button onclick="tab('catalog',this)">📦 Catalog</button>
-  <button onclick="tab('upload',this)">📥 Stock Upload</button>
-  <button onclick="tab('manage',this)">⚙️ Manage</button>
-</nav>
-
-<main>
-  <!-- SEARCH -->
-  <div class="section active" id="tab-search">
-    <div class="search-box">
-      <input id="searchInput" type="text" placeholder="Enter Model Number (e.g. ABC-123)..." onkeydown="if(event.key==='Enter')doSearch()"/>
-      <button onclick="doSearch()">Search</button>
-    </div>
-    <div id="searchResult"></div>
-  </div>
-
-  <!-- CATALOG -->
-  <div class="section" id="tab-catalog">
-    <div class="catalog-controls">
-      <input type="text" placeholder="Filter by model, brand, supplier..." oninput="filterCatalog(this.value)"/>
-    </div>
-    <div class="catalog-grid" id="catalogGrid"></div>
-  </div>
-
-  <!-- STOCK UPLOAD -->
-  <div class="section" id="tab-upload">
-    <div class="upload-zone" onclick="document.getElementById('excelFile').click()">
-      <div class="icon">📊</div>
-      <p><strong>Click to upload your daily ERP Excel file</strong></p>
-      <p style="margin-top:6px;">Stock data will be merged automatically</p>
-      <input type="file" id="excelFile" accept=".xlsx,.xls" class="hidden" onchange="handleExcel(this)"/>
-    </div>
-    <div class="upload-info">
-      <strong>Expected columns from your ERP:</strong>
-      <ul>
-        <li>COMPANY, LOCATION, ITEM, SUPPLIER, BRAND, Brand Name</li>
-        <li><strong>MODEL</strong> — unique key per product</li>
-        <li>COLOR, TYPE, GROUP, SGROUP, SOLE, UOM</li>
-        <li><strong>CLOSING STOCK</strong> — summed across all locations & colors</li>
-      </ul>
-      <p style="margin-top:8px;">✅ Images stored on Cloudinary are never affected by stock uploads.</p>
-    </div>
-    <div id="uploadStatus"></div>
-  </div>
-
-  <!-- MANAGE -->
-  <div class="section" id="tab-manage">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <h2 style="color:var(--primary);font-size:17px;">All Products</h2>
-      <button class="btn btn-primary" onclick="openAddModal()">+ Add Product</button>
-    </div>
-    <div class="manage-list" id="manageList"></div>
-  </div>
-</main>
-
-<!-- MODAL -->
-<div class="modal-overlay" id="modalOverlay">
-  <div class="modal">
-    <h2 id="modalTitle">Add Product</h2>
-    <div class="form-group"><label>Model Number *</label><input id="fModel" type="text" placeholder="e.g. ABC-123"/></div>
-    <div class="form-group"><label>Brand</label><input id="fBrand" type="text"/></div>
-    <div class="form-group"><label>Brand Name</label><input id="fBrandName" type="text"/></div>
-    <div class="form-group"><label>Supplier</label><input id="fSupplier" type="text"/></div>
-    <div class="form-group"><label>Sole Type</label><input id="fSole" type="text"/></div>
-    <div class="form-group"><label>Type / Upper Style</label><input id="fType" type="text"/></div>
-    <div class="form-group"><label>Group</label><input id="fGroup" type="text"/></div>
-    <div class="form-group"><label>Total Stock (manual)</label><input id="fStock" type="number" min="0"/></div>
-    <div class="form-group">
-      <label>Product Image</label>
-      <input type="file" id="fImage" accept="image/*" onchange="previewModalImg(this)"/>
-      <img id="fImgPreview" class="img-preview"/>
-      <div class="img-upload-status" id="fImgStatus"></div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-cancel" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" id="saveBtn" onclick="saveProduct()">Save</button>
-    </div>
-  </div>
-</div>
-
-<div class="toast" id="toast"></div>
-
 <script>
 // ---- CLOUDINARY CONFIG ----
 const CLOUD_NAME = 'dvptqqswl';
@@ -237,25 +7,37 @@ const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/uplo
 // ---- STATE ----
 let db = {};
 let editingModel = null;
-let pendingImgFile = null; // file to upload on save
+let pendingImgFile = null;
 
+// ---- LOAD / SAVE DB ----
 function loadDB() {
-  try { db = JSON.parse(localStorage.getItem('footwear_db') || '{}'); } catch(e) { db = {}; }
+  try {
+    db = JSON.parse(localStorage.getItem('footwear_db') || '{}');
+  } catch (e) {
+    db = {};
+  }
 }
-function saveDB() { localStorage.setItem('footwear_db', JSON.stringify(db)); }
+
+function saveDB() {
+  localStorage.setItem('footwear_db', JSON.stringify(db));
+}
+
 loadDB();
 
-// ---- CLOUDINARY UPLOAD ----
+
+// -------------------------------
+// ✅ CLOUDINARY UPLOAD (FIXED)
+// -------------------------------
 async function uploadToCloudinary(file, modelName) {
   const fd = new FormData();
   fd.append('file', file);
   fd.append('upload_preset', UPLOAD_PRESET);
   fd.append('folder', 'footwear_catalog');
 
-  // 🔁 SAME ID = REPLACE OLD IMAGE
-  fd.append('public_id', `model_${modelName.replace(/[^a-zA-Z0-9]/g,'_')}`);
+  // 🔥 FIXED: stable ID = REPLACE IMAGE (NO STACKING)
+  const cleanModel = modelName.replace(/[^a-zA-Z0-9]/g, '_');
+  fd.append('public_id', `model_${cleanModel}`);
 
-  // ✅ FORCE REPLACE
   fd.append('overwrite', 'true');
 
   const res = await fetch(CLOUDINARY_URL, {
@@ -266,23 +48,32 @@ async function uploadToCloudinary(file, modelName) {
   const data = await res.json();
 
   if (!res.ok) {
-    console.error(data);
+    console.error('Cloudinary Error:', data);
     throw new Error(data.error?.message || 'Upload failed');
   }
 
   return data.secure_url;
 }
-// ---- TABS ----
+
+
+// -------------------------------
+// TAB SWITCH
+// -------------------------------
 function tab(name, btn) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-'+name).classList.add('active');
+
+  document.getElementById('tab-' + name).classList.add('active');
   btn.classList.add('active');
-  if(name==='catalog') renderCatalog();
-  if(name==='manage') renderManage();
+
+  if (name === 'catalog') renderCatalog();
+  if (name === 'manage') renderManage();
 }
 
-// ---- TOAST ----
+
+// -------------------------------
+// TOAST
+// -------------------------------
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -290,254 +81,204 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 2800);
 }
 
-// ---- SEARCH ----
+
+// -------------------------------
+// SEARCH
+// -------------------------------
 function doSearch() {
   const q = document.getElementById('searchInput').value.trim().toUpperCase();
   const el = document.getElementById('searchResult');
-  if(!q) { el.innerHTML=''; return; }
-  const prod = db[q];
-  if(!prod) {
-    el.innerHTML=`<div class="empty"><div class="icon">🔎</div><p>No product found for <strong>${q}</strong></p><p style="margin-top:6px;font-size:13px;">Upload stock data or add manually in Manage.</p></div>`;
+
+  if (!q) {
+    el.innerHTML = '';
     return;
   }
-  const colors = (prod.colors||[]).map(c=>`<span class="color-tag">${c}</span>`).join('');
-  const breakdown = (prod.breakdown||[]).map(r=>`<tr><td>${r.loc}</td><td>${r.color}</td><td>${r.qty}</td></tr>`).join('');
-  el.innerHTML=`
+
+  const prod = db[q];
+
+  if (!prod) {
+    el.innerHTML = `<div class="empty"><div class="icon">🔎</div><p>No product found for <strong>${q}</strong></p></div>`;
+    return;
+  }
+
+  const colors = (prod.colors || []).map(c => `<span class="color-tag">${c}</span>`).join('');
+
+  el.innerHTML = `
     <div class="result-card">
-      ${prod.image?`<img class="img-area" src="${prod.image}" alt="Product"/>` : `<div class="img-placeholder"><div class="icon">👟</div><p>No image uploaded</p></div>`}
+      ${prod.image
+        ? `<img class="img-area" src="${prod.image}" alt="Product"/>`
+        : `<div class="img-placeholder"><div class="icon">👟</div><p>No image uploaded</p></div>`
+      }
+
       <div class="result-body">
         <div class="model-title">${prod.model}</div>
-        <div class="brand-sub">${prod.brandName||prod.brand||''}</div>
-        <div class="stock-badge">📦 Total Stock: ${prod.totalStock||0}</div>
+        <div class="brand-sub">${prod.brandName || prod.brand || ''}</div>
+
+        <div class="stock-badge">📦 Total Stock: ${prod.totalStock || 0}</div>
+
         <div class="info-grid">
-          <div class="info-item"><label>Brand</label><p>${prod.brand||'—'}</p></div>
-          <div class="info-item"><label>Supplier</label><p>${prod.supplier||'—'}</p></div>
-          <div class="info-item"><label>Sole Type</label><p>${prod.sole||'—'}</p></div>
-          <div class="info-item"><label>Type / Upper</label><p>${prod.type||'—'}</p></div>
-          <div class="info-item"><label>Group</label><p>${prod.group||'—'}</p></div>
-          <div class="info-item"><label>Company</label><p>${prod.company||'—'}</p></div>
+          <div class="info-item"><label>Brand</label><p>${prod.brand || '—'}</p></div>
+          <div class="info-item"><label>Supplier</label><p>${prod.supplier || '—'}</p></div>
+          <div class="info-item"><label>Sole Type</label><p>${prod.sole || '—'}</p></div>
+          <div class="info-item"><label>Type</label><p>${prod.type || '—'}</p></div>
         </div>
-        ${colors?`<div class="info-item" style="margin-bottom:14px;"><label>Colors</label><div class="colors-list">${colors}</div></div>`:''}
-        ${breakdown?`<button class="breakdown-toggle" onclick="toggleBreakdown(this)">📍 Show Location Breakdown</button>
-        <div class="hidden" id="breakdown"><table class="breakdown-table"><thead><tr><th>Location</th><th>Color</th><th>Qty</th></tr></thead><tbody>${breakdown}</tbody></table></div>`:''}
+
+        ${colors ? `<div class="colors-list">${colors}</div>` : ''}
+
         <div class="upload-btn-wrap">
-          <label class="upload-btn" id="searchImgBtn">
-            📷 ${prod.image?'Change':'Upload'} Image
-            <input type="file" accept="image/*" class="hidden" onchange="uploadImgForModel('${prod.model}',this)"/>
+          <label class="upload-btn">
+            📷 ${prod.image ? 'Change' : 'Upload'} Image
+            <input type="file" accept="image/*"
+              onchange="uploadImgForModel('${prod.model}', this)"
+              class="hidden"/>
           </label>
         </div>
       </div>
-    </div>`;
+    </div>
+  `;
 }
 
-function toggleBreakdown(btn) {
-  const el = document.getElementById('breakdown');
-  el.classList.toggle('hidden');
-  btn.textContent = el.classList.contains('hidden') ? '📍 Show Location Breakdown' : '📍 Hide Location Breakdown';
-}
 
+// -------------------------------
+// IMAGE UPLOAD (FIXED)
+// -------------------------------
 async function uploadImgForModel(model, input) {
-  const file = input.files[0]; if(!file) return;
-  const btn = document.getElementById('searchImgBtn');
-  btn.classList.add('loading');
-  btn.innerHTML = `<span class="spinner"></span> Uploading to Cloudinary...`;
+  const file = input.files[0];
+  if (!file) return;
+
   try {
     const url = await uploadToCloudinary(file, model);
-    db[model].image = url + '?v=' + Date.now();
+
+    // 🔥 FIX: store CLEAN URL only (NO cache tricks here)
+    db[model].image = url;
+
     saveDB();
-    toast('✅ Image uploaded & saved!');
+    toast('✅ Image updated (replaced old one)');
+
     doSearch();
-  } catch(e) {
-    toast('❌ Upload failed. Check preset / file size.');
-    btn.classList.remove('loading');
-    btn.innerHTML = `📷 ${db[model].image ? 'Change' : 'Upload'} Image`;
+    renderCatalog();
+    renderManage();
+
+  } catch (e) {
+    console.error(e);
+    toast('❌ Upload failed');
   }
 }
 
-// ---- EXCEL ----
+
+// -------------------------------
+// EXCEL UPLOAD
+// -------------------------------
 function handleExcel(input) {
-  const file = input.files[0]; if(!file) return;
-  const statusEl = document.getElementById('uploadStatus');
-  statusEl.innerHTML=`<p style="margin-top:14px;color:var(--text-muted);">⏳ Processing Excel file...</p>`;
+  const file = input.files[0];
+  if (!file) return;
+
   const r = new FileReader();
+
   r.onload = e => {
-    try {
-      const wb = XLSX.read(e.target.result, {type:'binary'});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
-      if(!rows.length) { statusEl.innerHTML=`<p style="color:red;margin-top:12px;">No data found.</p>`; return; }
-      let updated=0, added=0;
-      const agg = {};
-      rows.forEach(row => {
-        const model = String(row['MODEL']||'').trim().toUpperCase();
-        if(!model) return;
-        const qty = parseFloat(row['CLOSING STOCK']||0)||0;
-        if(!agg[model]) {
-          agg[model] = {
-            model, totalStock:0, colors:new Set(), breakdown:[],
-            supplier:String(row['SUPPLIER']||''), brand:String(row['BRAND']||''),
-            brandName:String(row['Brand Name']||''), sole:String(row['SOLE']||''),
-            type:String(row['TYPE']||''), group:String(row['GROUP']||''),
-            sgroup:String(row['SGROUP']||''), company:String(row['COMPANY']||''),
-            item:String(row['ITEM']||'')
-          };
-        }
-        agg[model].totalStock += qty;
-        const color = String(row['COLOR']||'').trim();
-        if(color) agg[model].colors.add(color);
-        agg[model].breakdown.push({loc:String(row['LOCATION']||''), color, qty});
-      });
-      Object.values(agg).forEach(a => {
-        a.colors = [...a.colors];
-        const ex = db[a.model];
-        if(ex) { db[a.model] = {...a, image: ex.image||null}; updated++; }
-        else { db[a.model] = {...a, image:null}; added++; }
-      });
-      saveDB();
-      statusEl.innerHTML=`<div class="upload-info" style="margin-top:16px;">✅ <strong>Upload successful!</strong><br>${added} new models added, ${updated} updated.<br><span style="font-size:12px;">All Cloudinary images preserved.</span></div>`;
-      toast(`Stock updated: ${added} added, ${updated} updated`);
-      input.value='';
-    } catch(err) {
-      statusEl.innerHTML=`<p style="color:red;margin-top:12px;">Error: ${err.message}</p>`;
-    }
+    const wb = XLSX.read(e.target.result, { type: 'binary' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+    const agg = {};
+
+    rows.forEach(row => {
+      const model = String(row['MODEL'] || '').trim().toUpperCase();
+      if (!model) return;
+
+      const qty = parseFloat(row['CLOSING STOCK'] || 0) || 0;
+
+      if (!agg[model]) {
+        agg[model] = {
+          model,
+          totalStock: 0,
+          colors: new Set(),
+          supplier: row['SUPPLIER'] || '',
+          brand: row['BRAND'] || '',
+          brandName: row['Brand Name'] || ''
+        };
+      }
+
+      agg[model].totalStock += qty;
+
+      const color = row['COLOR'];
+      if (color) agg[model].colors.add(color);
+    });
+
+    Object.values(agg).forEach(a => {
+      a.colors = [...a.colors];
+
+      const existing = db[a.model];
+
+      db[a.model] = {
+        ...a,
+        image: existing?.image || null
+      };
+    });
+
+    saveDB();
+    toast('✅ Stock updated');
+
+    renderCatalog();
+    renderManage();
   };
+
   r.readAsBinaryString(file);
 }
 
-// ---- CATALOG ----
-let catalogFilter='';
-function filterCatalog(v) { catalogFilter=v.toLowerCase(); renderCatalog(); }
+
+// -------------------------------
+// CATALOG
+// -------------------------------
 function renderCatalog() {
   const grid = document.getElementById('catalogGrid');
-  const items = Object.values(db).filter(p =>
-    !catalogFilter ||
-    p.model.toLowerCase().includes(catalogFilter)||
-    (p.brand||'').toLowerCase().includes(catalogFilter)||
-    (p.supplier||'').toLowerCase().includes(catalogFilter)
-  );
-  if(!items.length) { grid.innerHTML=`<div class="empty" style="grid-column:1/-1"><div class="icon">📦</div><p>No products yet.</p></div>`; return; }
-  grid.innerHTML=items.map(p=>`
+
+  const items = Object.values(db);
+
+  grid.innerHTML = items.map(p => `
     <div class="cat-card" onclick="goSearch('${p.model}')">
-      ${p.image?`<img src="${p.image}" alt="${p.model}"/>`:`<div class="no-img">👟</div>`}
+      ${p.image
+        ? `<img src="${p.image}" />`
+        : `<div class="no-img">👟</div>`
+      }
       <div class="cat-info">
         <div class="model-no">${p.model}</div>
-        <div class="brand">${p.brandName||p.brand||'—'}</div>
-        <div class="stock">Stock: ${p.totalStock||0}</div>
+        <div>${p.brandName || p.brand || ''}</div>
+        <div>Stock: ${p.totalStock || 0}</div>
       </div>
-    </div>`).join('');
+    </div>
+  `).join('');
 }
 
-function goSearch(model) {
-  document.getElementById('searchInput').value=model;
-  tab('search', document.querySelectorAll('nav button')[0]);
-  doSearch();
-}
 
-// ---- MANAGE ----
+// -------------------------------
+// MANAGE
+// -------------------------------
 function renderManage() {
   const list = document.getElementById('manageList');
-  const items = Object.values(db);
-  if(!items.length) { list.innerHTML=`<div class="empty"><div class="icon">⚙️</div><p>No products yet.</p></div>`; return; }
-  list.innerHTML=items.map(p=>`
+
+  list.innerHTML = Object.values(db).map(p => `
     <div class="manage-item">
-      ${p.image?`<img src="${p.image}" alt="${p.model}"/>`:`<div class="m-no-img">👟</div>`}
+      ${p.image
+        ? `<img src="${p.image}" />`
+        : `<div class="m-no-img">👟</div>`
+      }
+
       <div class="m-info">
         <strong>${p.model}</strong>
-        <span>${p.brandName||p.brand||'—'} · ${p.supplier||'—'}</span>
-        <span>Stock: ${p.totalStock||0}</span>
+        <span>${p.brand || ''}</span>
+        <span>Stock: ${p.totalStock || 0}</span>
       </div>
-      <div class="m-actions">
-        <button class="btn btn-edit" onclick="openEditModal('${p.model}')">Edit</button>
-        <button class="btn btn-del" onclick="deleteProduct('${p.model}')">Delete</button>
-      </div>
-    </div>`).join('');
+    </div>
+  `).join('');
 }
 
-function deleteProduct(model) {
-  if(!confirm(`Delete ${model}? This cannot be undone.`)) return;
-  delete db[model]; saveDB(); renderManage(); toast('Product deleted.');
-}
 
-// ---- MODAL ----
-function openAddModal() {
-  editingModel=null; pendingImgFile=null;
-  document.getElementById('modalTitle').textContent='Add Product';
-  ['fModel','fBrand','fBrandName','fSupplier','fSole','fType','fGroup'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('fStock').value=0;
-  document.getElementById('fModel').disabled=false;
-  document.getElementById('fImgPreview').style.display='none';
-  document.getElementById('fImgStatus').textContent='';
-  document.getElementById('fImage').value='';
-  document.getElementById('modalOverlay').classList.add('open');
-}
-
-function openEditModal(model) {
-  editingModel=model; pendingImgFile=null;
-  const p=db[model];
-  document.getElementById('modalTitle').textContent='Edit Product';
-  document.getElementById('fModel').value=p.model; document.getElementById('fModel').disabled=true;
-  document.getElementById('fBrand').value=p.brand||'';
-  document.getElementById('fBrandName').value=p.brandName||'';
-  document.getElementById('fSupplier').value=p.supplier||'';
-  document.getElementById('fSole').value=p.sole||'';
-  document.getElementById('fType').value=p.type||'';
-  document.getElementById('fGroup').value=p.group||'';
-  document.getElementById('fStock').value=p.totalStock||0;
-  document.getElementById('fImgStatus').textContent='';
-  document.getElementById('fImage').value='';
-  const prev=document.getElementById('fImgPreview');
-  if(p.image){prev.src=p.image;prev.style.display='block';}else{prev.style.display='none';}
-  document.getElementById('modalOverlay').classList.add('open');
-}
-
-function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
-
-function previewModalImg(input) {
-  const file=input.files[0]; if(!file) return;
-  pendingImgFile=file;
-  const r=new FileReader();
-  r.onload=e=>{const img=document.getElementById('fImgPreview');img.src=e.target.result;img.style.display='block';};
-  r.readAsDataURL(file);
-  document.getElementById('fImgStatus').textContent='Image selected — will upload on Save.';
-}
-
-async function saveProduct() {
-  const model=(editingModel||document.getElementById('fModel').value.trim().toUpperCase());
-  if(!model){alert('Model number is required.');return;}
-  const btn=document.getElementById('saveBtn');
-  btn.disabled=true; btn.innerHTML=`<span class="spinner"></span> Saving...`;
-  try {
-    let imgUrl=null;
-    if(pendingImgFile) {
-      document.getElementById('fImgStatus').textContent='Uploading image to Cloudinary...';
-      imgUrl=await uploadToCloudinary(pendingImgFile, model);
-    }
-    const existing=db[model]||{};
-    db[model]={
-      ...existing, model,
-      brand:document.getElementById('fBrand').value.trim(),
-      brandName:document.getElementById('fBrandName').value.trim(),
-      supplier:document.getElementById('fSupplier').value.trim(),
-      sole:document.getElementById('fSole').value.trim(),
-      type:document.getElementById('fType').value.trim(),
-      group:document.getElementById('fGroup').value.trim(),
-      totalStock:parseFloat(document.getElementById('fStock').value)||0,
-      image: imgUrl
-        ? imgUrl + '?v=' + Date.now()
-        : (existing.image || null),
-      colors:existing.colors||[], breakdown:existing.breakdown||[]
-    };
-    saveDB();
-    closeModal(); renderManage();
-    toast(editingModel?'✅ Product updated!':'✅ Product added!');
-  } catch(e) {
-    document.getElementById('fImgStatus').textContent='❌ Image upload failed. Try again.';
-    toast('❌ Upload failed.');
-  }
-  btn.disabled=false; btn.textContent='Save';
+// -------------------------------
+function goSearch(model) {
+  document.getElementById('searchInput').value = model;
+  doSearch();
 }
 
 renderCatalog();
 </script>
-</body>
-</html>
