@@ -432,7 +432,7 @@ function handleExcel(input) {
         const qty = parseFloat(row['CLOSING STOCK'] || 0) || 0;
         if (!agg[model]) {
           agg[model] = {
-            model, totalStock: 0, colors: [], breakdown: [],
+            model, totalStock: 0, colors: [], 
             supplier: String(row['SUPPLIER'] || ''), brand: String(row['BRAND'] || ''),
             brandName: String(row['Brand Name'] || ''), sole: String(row['SOLE'] || ''),
             type: String(row['TYPE'] || ''), group: String(row['GROUP'] || ''),
@@ -443,22 +443,80 @@ function handleExcel(input) {
         agg[model].totalStock += qty;
         const color = String(row['COLOR'] || '').trim();
         if (color && !agg[model].colors.includes(color)) agg[model].colors.push(color);
-        agg[model].breakdown.push({ loc: String(row['LOCATION'] || ''), color, qty });
-      });
+      // agg[model].breakdown.push({
+//     loc: String(row['LOCATION'] || ''),
+//     color,
+//     qty
+// });
 
       statusEl.innerHTML = `<p style="margin-top:14px;color:var(--text-muted);">⏳ Saving ${Object.keys(agg).length} products to Firebase...</p>`;
 
-      // ✅ Save each model to Firebase (preserve existing images)
-      let updated = 0, added = 0;
-      const batch = firestoreDB.batch();
-      Object.values(agg).forEach(a => {
+// ======================================================
+// SAVE TO FIREBASE IN CHUNKS OF 500
+// ======================================================
+
+let updated = 0;
+let added = 0;
+
+const models = Object.values(agg);
+const chunkSize = 500;
+
+for (let i = 0; i < models.length; i += chunkSize) {
+
+    const batch = firestoreDB.batch();
+
+    const chunk = models.slice(i, i + chunkSize);
+
+    chunk.forEach(a => {
+
         const existing = db[a.model];
-        const finalData = { ...a, image: existing?.image || null };
+
+        const finalData = {
+            model: a.model,
+            totalStock: a.totalStock,
+            colors: a.colors || [],
+            supplier: a.supplier || '',
+            brand: a.brand || '',
+            brandName: a.brandName || '',
+            sole: a.sole || '',
+            type: a.type || '',
+            group: a.group || '',
+            sgroup: a.sgroup || '',
+            company: a.company || '',
+            item: a.item || '',
+
+            // Preserve existing image
+            image: existing?.image || null
+
+            // IMPORTANT:
+            // breakdown removed to keep documents small
+        };
+
         db[a.model] = finalData;
-        batch.set(productsCol.doc(a.model), finalData);
-        if (existing) updated++; else added++;
-      });
-      await batch.commit(); // One network call for all models — fast!
+
+        batch.set(
+            productsCol.doc(a.model),
+            finalData
+        );
+
+        if (existing) {
+            updated++;
+        } else {
+            added++;
+        }
+    });
+
+    await batch.commit();
+
+    statusEl.innerHTML = `
+        <div class="upload-info">
+            ⏳ Uploading...
+            <br>
+            ${Math.min(i + chunk.length, models.length)}
+            / ${models.length} models uploaded
+        </div>
+    `;
+}
 
       // Update status badge
       document.getElementById('db-status').textContent = `✅ ${Object.keys(db).length} products`;
