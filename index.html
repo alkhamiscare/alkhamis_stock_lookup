@@ -413,65 +413,103 @@ async function uploadImgForModel(model, input) {
 // EXCEL UPLOAD → FIREBASE
 // ============================================================
 function handleExcel(input) {
-  const file = input.files[0]; if (!file) return;
-  const statusEl = document.getElementById('uploadStatus');
-  statusEl.innerHTML = `<p style="margin-top:14px;color:var(--text-muted);">⏳ Processing Excel file...</p>`;
-  const r = new FileReader();
-  r.onload = async e => {
-    try {
-      const wb = XLSX.read(e.target.result, { type: 'binary' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-      if (!rows.length) { statusEl.innerHTML = `<p style="color:red;margin-top:12px;">No data found.</p>`; return; }
+  const file = input.files[0];
+  if (!file) return;
 
-      // Aggregate rows by MODEL
+  const statusEl = document.getElementById('uploadStatus');
+
+  statusEl.innerHTML =
+    `<p style="margin-top:14px;color:var(--text-muted);">
+      ⏳ Processing Excel file...
+    </p>`;
+
+  const reader = new FileReader();
+
+  reader.onload = async (e) => {
+    try {
+
+      const workbook = XLSX.read(e.target.result, { type: 'binary' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+      if (!rows.length) {
+        statusEl.innerHTML =
+          `<p style="color:red;margin-top:12px;">
+            No data found.
+          </p>`;
+        return;
+      }
+
       const agg = {};
+
       rows.forEach(row => {
-        const model = String(row['MODEL'] || '').trim().toUpperCase();
+
+        const model = String(row['MODEL'] || '')
+          .trim()
+          .toUpperCase();
+
         if (!model) return;
-        const qty = parseFloat(row['CLOSING STOCK'] || 0) || 0;
+
+        const qty =
+          parseFloat(row['CLOSING STOCK'] || 0) || 0;
+
         if (!agg[model]) {
           agg[model] = {
-            model, totalStock: 0, colors: [], 
-            supplier: String(row['SUPPLIER'] || ''), brand: String(row['BRAND'] || ''),
-            brandName: String(row['Brand Name'] || ''), sole: String(row['SOLE'] || ''),
-            type: String(row['TYPE'] || ''), group: String(row['GROUP'] || ''),
-            sgroup: String(row['SGROUP'] || ''), company: String(row['COMPANY'] || ''),
+            model,
+            totalStock: 0,
+            colors: [],
+            supplier: String(row['SUPPLIER'] || ''),
+            brand: String(row['BRAND'] || ''),
+            brandName: String(row['Brand Name'] || ''),
+            sole: String(row['SOLE'] || ''),
+            type: String(row['TYPE'] || ''),
+            group: String(row['GROUP'] || ''),
+            sgroup: String(row['SGROUP'] || ''),
+            company: String(row['COMPANY'] || ''),
             item: String(row['ITEM'] || '')
           };
         }
+
         agg[model].totalStock += qty;
+
         const color = String(row['COLOR'] || '').trim();
-        if (color && !agg[model].colors.includes(color)) agg[model].colors.push(color);
-      // agg[model].breakdown.push({
-//     loc: String(row['LOCATION'] || ''),
-//     color,
-//     qty
-// });
 
-      statusEl.innerHTML = `<p style="margin-top:14px;color:var(--text-muted);">⏳ Saving ${Object.keys(agg).length} products to Firebase...</p>`;
+        if (
+          color &&
+          !agg[model].colors.includes(color)
+        ) {
+          agg[model].colors.push(color);
+        }
 
-// ======================================================
-// SAVE TO FIREBASE IN CHUNKS OF 500
-// ======================================================
+      });
 
-let updated = 0;
-let added = 0;
+      statusEl.innerHTML =
+        `<p style="margin-top:14px;color:var(--text-muted);">
+          ⏳ Saving ${Object.keys(agg).length} products to Firebase...
+        </p>`;
 
-const models = Object.values(agg);
-const chunkSize = 500;
+      let updated = 0;
+      let added = 0;
 
-for (let i = 0; i < models.length; i += chunkSize) {
+      const models = Object.values(agg);
+      const chunkSize = 500;
 
-    const batch = firestoreDB.batch();
+      for (
+        let i = 0;
+        i < models.length;
+        i += chunkSize
+      ) {
 
-    const chunk = models.slice(i, i + chunkSize);
+        const batch = firestoreDB.batch();
 
-    chunk.forEach(a => {
+        const chunk =
+          models.slice(i, i + chunkSize);
 
-        const existing = db[a.model];
+        chunk.forEach(a => {
 
-        const finalData = {
+          const existing = db[a.model];
+
+          const finalData = {
             model: a.model,
             totalStock: a.totalStock,
             colors: a.colors || [],
@@ -484,52 +522,63 @@ for (let i = 0; i < models.length; i += chunkSize) {
             sgroup: a.sgroup || '',
             company: a.company || '',
             item: a.item || '',
-
-            // Preserve existing image
             image: existing?.image || null
+          };
 
-            // IMPORTANT:
-            // breakdown removed to keep documents small
-        };
+          db[a.model] = finalData;
 
-        db[a.model] = finalData;
-
-        batch.set(
+          batch.set(
             productsCol.doc(a.model),
             finalData
-        );
+          );
 
-        if (existing) {
+          if (existing) {
             updated++;
-        } else {
+          } else {
             added++;
-        }
-    });
+          }
 
-    await batch.commit();
+        });
 
-    statusEl.innerHTML = `
-        <div class="upload-info">
+        await batch.commit();
+
+        statusEl.innerHTML =
+          `<div class="upload-info">
             ⏳ Uploading...
             <br>
             ${Math.min(i + chunk.length, models.length)}
             / ${models.length} models uploaded
-        </div>
-    `;
-}
+          </div>`;
+      }
 
-      // Update status badge
-      document.getElementById('db-status').textContent = `✅ ${Object.keys(db).length} products`;
+      document.getElementById('db-status').textContent =
+        `✅ ${Object.keys(db).length} products`;
 
-      statusEl.innerHTML = `<div class="upload-info" style="margin-top:16px;">✅ <strong>Upload successful!</strong><br>${added} new models added, ${updated} updated.<br><span style="font-size:12px;">All Cloudinary images preserved. Data saved to Firebase cloud.</span></div>`;
-      toast(`Stock updated: ${added} added, ${updated} updated`);
+      statusEl.innerHTML =
+        `<div class="upload-info">
+          ✅ <strong>Upload successful!</strong><br>
+          ${added} new models added,
+          ${updated} updated.
+        </div>`;
+
+      toast(
+        `Stock updated: ${added} added, ${updated} updated`
+      );
+
       input.value = '';
-    } catch(err) {
+
+    } catch (err) {
+
       console.error(err);
-      statusEl.innerHTML = `<p style="color:red;margin-top:12px;">Error: ${err.message}</p>`;
+
+      statusEl.innerHTML =
+        `<p style="color:red;margin-top:12px;">
+          Error: ${err.message}
+        </p>`;
     }
   };
-  r.readAsBinaryString(file);
+
+  reader.readAsBinaryString(file);
 }
 
 // ============================================================
