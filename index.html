@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Footwear Catalog</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- Firebase (compat version works directly in browser, no build tools needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+
 <style>
   :root {
     --bg: #fdf6ee;
@@ -29,6 +34,9 @@
   header .logo { font-size: 28px; }
   header h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
   header p { font-size: 12px; opacity: 0.8; }
+  #db-status { margin-left: auto; font-size: 12px; padding: 4px 12px; border-radius: 20px; background: rgba(255,255,255,0.15); }
+  #db-status.connected { background: rgba(106,171,106,0.35); }
+  #db-status.error { background: rgba(192,57,43,0.35); }
 
   nav { display: flex; background: var(--primary-dark); }
   nav button { flex: 1; padding: 11px 8px; background: none; border: none; color: rgba(255,255,255,0.7); font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; border-bottom: 3px solid transparent; }
@@ -117,7 +125,6 @@
   .modal-actions { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
   .btn-cancel { background: var(--accent-light); color: var(--primary-dark); }
 
-  /* Cloudinary upload progress */
   .img-upload-status { font-size: 12px; margin-top: 6px; color: var(--text-muted); }
   .img-preview { margin-top: 8px; max-width: 100%; max-height: 160px; border-radius: 8px; display: none; }
 
@@ -143,6 +150,7 @@
     <h1>Footwear Catalog</h1>
     <p>Stock Lookup & Product Manager</p>
   </div>
+  <div id="db-status">⏳ Connecting...</div>
 </header>
 
 <nav>
@@ -229,64 +237,105 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// ---- CLOUDINARY CONFIG ----
+// ============================================================
+// FIREBASE SETUP
+// ============================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyBdVBiTV7g3aJCLb4Psmc0vDUB-bncbG68",
+  authDomain: "stock-lookup-cea0d.firebaseapp.com",
+  databaseURL: "https://stock-lookup-cea0d-default-rtdb.firebaseio.com",
+  projectId: "stock-lookup-cea0d",
+  storageBucket: "stock-lookup-cea0d.firebasestorage.app",
+  messagingSenderId: "749487416287",
+  appId: "1:749487416287:web:05a790a16247af59925a6a",
+  measurementId: "G-ZPJSMH5DZ9"
+};
+
+firebase.initializeApp(firebaseConfig);
+const firestoreDB = firebase.firestore();
+const productsCol = firestoreDB.collection('products');
+
+// ============================================================
+// CLOUDINARY CONFIG
+// ============================================================
 const CLOUD_NAME = 'dvptqqswl';
 const UPLOAD_PRESET = 'footwear_uploads';
 const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
 
-// ---- STATE ----
+// ============================================================
+// IN-MEMORY CACHE (so UI stays fast — Firebase is the source of truth)
+// ============================================================
 let db = {};
 let editingModel = null;
-let pendingImgFile = null; // file to upload on save
+let pendingImgFile = null;
 
-function loadDB() {
-  try { db = JSON.parse(localStorage.getItem('footwear_db') || '{}'); } catch(e) { db = {}; }
-}
-function saveDB() { localStorage.setItem('footwear_db', JSON.stringify(db)); }
-loadDB();
-
-// ---- CLOUDINARY UPLOAD ----
-async function uploadToCloudinary(file, modelName) {
-  // 🔒 Basic file validation
-  if (file.size > 5 * 1024 * 1024) {
-    throw new Error('Image too large (max 5MB)');
+// ============================================================
+// FIREBASE: LOAD ALL PRODUCTS ON START
+// ============================================================
+async function loadFromFirebase() {
+  const statusEl = document.getElementById('db-status');
+  try {
+    const snap = await productsCol.get();
+    db = {};
+    snap.forEach(doc => { db[doc.id] = doc.data(); });
+    statusEl.textContent = `✅ ${Object.keys(db).length} products`;
+    statusEl.className = 'connected';
+    renderCatalog();
+  } catch(e) {
+    console.error('Firebase load error:', e);
+    statusEl.textContent = '❌ DB Error';
+    statusEl.className = 'error';
+    toast('⚠️ Could not connect to database. Check Firestore rules.');
   }
+}
 
+// ============================================================
+// FIREBASE: SAVE ONE PRODUCT
+// ============================================================
+async function saveToFirebase(model, data) {
+  // Firestore doesn't accept Sets — make sure colors is an array
+  const clean = { ...data, colors: Array.isArray(data.colors) ? data.colors : [...(data.colors || [])] };
+  await productsCol.doc(model).set(clean);
+}
+
+// ============================================================
+// FIREBASE: DELETE ONE PRODUCT
+// ============================================================
+async function deleteFromFirebase(model) {
+  await productsCol.doc(model).delete();
+}
+
+// ============================================================
+// CLOUDINARY IMAGE UPLOAD
+// ============================================================
+async function uploadToCloudinary(file, modelName) {
+  if (file.size > 5 * 1024 * 1024) throw new Error('Image too large (max 5MB)');
   const fd = new FormData();
   fd.append('file', file);
   fd.append('upload_preset', UPLOAD_PRESET);
   fd.append('folder', 'footwear_catalog');
-
-  // ✅ Prevent overwrite issue
   fd.append('public_id', `model_${modelName}_${Date.now()}`);
-
-  const res = await fetch(CLOUDINARY_URL, {
-    method: 'POST',
-    body: fd
-  });
-
+  const res = await fetch(CLOUDINARY_URL, { method: 'POST', body: fd });
   const data = await res.json();
-
-  // ✅ Proper error handling (VERY IMPORTANT)
-  if (!res.ok) {
-    console.error('Cloudinary Error:', data);
-    throw new Error(data.error?.message || 'Upload failed');
-  }
-
+  if (!res.ok) throw new Error(data.error?.message || 'Upload failed');
   return data.secure_url;
 }
 
-// ---- TABS ----
+// ============================================================
+// TABS
+// ============================================================
 function tab(name, btn) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-'+name).classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
   btn.classList.add('active');
-  if(name==='catalog') renderCatalog();
-  if(name==='manage') renderManage();
+  if (name === 'catalog') renderCatalog();
+  if (name === 'manage') renderManage();
 }
 
-// ---- TOAST ----
+// ============================================================
+// TOAST
+// ============================================================
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -294,39 +343,41 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 2800);
 }
 
-// ---- SEARCH ----
+// ============================================================
+// SEARCH
+// ============================================================
 function doSearch() {
   const q = document.getElementById('searchInput').value.trim().toUpperCase();
   const el = document.getElementById('searchResult');
-  if(!q) { el.innerHTML=''; return; }
+  if (!q) { el.innerHTML = ''; return; }
   const prod = db[q];
-  if(!prod) {
-    el.innerHTML=`<div class="empty"><div class="icon">🔎</div><p>No product found for <strong>${q}</strong></p><p style="margin-top:6px;font-size:13px;">Upload stock data or add manually in Manage.</p></div>`;
+  if (!prod) {
+    el.innerHTML = `<div class="empty"><div class="icon">🔎</div><p>No product found for <strong>${q}</strong></p><p style="margin-top:6px;font-size:13px;">Upload stock data or add manually in Manage.</p></div>`;
     return;
   }
-  const colors = (prod.colors||[]).map(c=>`<span class="color-tag">${c}</span>`).join('');
-  const breakdown = (prod.breakdown||[]).map(r=>`<tr><td>${r.loc}</td><td>${r.color}</td><td>${r.qty}</td></tr>`).join('');
-  el.innerHTML=`
+  const colors = (prod.colors || []).map(c => `<span class="color-tag">${c}</span>`).join('');
+  const breakdown = (prod.breakdown || []).map(r => `<tr><td>${r.loc}</td><td>${r.color}</td><td>${r.qty}</td></tr>`).join('');
+  el.innerHTML = `
     <div class="result-card">
-      ${prod.image?`<img class="img-area" src="${prod.image}" alt="Product"/>` : `<div class="img-placeholder"><div class="icon">👟</div><p>No image uploaded</p></div>`}
+      ${prod.image ? `<img class="img-area" src="${prod.image}" alt="Product"/>` : `<div class="img-placeholder"><div class="icon">👟</div><p>No image uploaded</p></div>`}
       <div class="result-body">
         <div class="model-title">${prod.model}</div>
-        <div class="brand-sub">${prod.brandName||prod.brand||''}</div>
-        <div class="stock-badge">📦 Total Stock: ${prod.totalStock||0}</div>
+        <div class="brand-sub">${prod.brandName || prod.brand || ''}</div>
+        <div class="stock-badge">📦 Total Stock: ${prod.totalStock || 0}</div>
         <div class="info-grid">
-          <div class="info-item"><label>Brand</label><p>${prod.brand||'—'}</p></div>
-          <div class="info-item"><label>Supplier</label><p>${prod.supplier||'—'}</p></div>
-          <div class="info-item"><label>Sole Type</label><p>${prod.sole||'—'}</p></div>
-          <div class="info-item"><label>Type / Upper</label><p>${prod.type||'—'}</p></div>
-          <div class="info-item"><label>Group</label><p>${prod.group||'—'}</p></div>
-          <div class="info-item"><label>Company</label><p>${prod.company||'—'}</p></div>
+          <div class="info-item"><label>Brand</label><p>${prod.brand || '—'}</p></div>
+          <div class="info-item"><label>Supplier</label><p>${prod.supplier || '—'}</p></div>
+          <div class="info-item"><label>Sole Type</label><p>${prod.sole || '—'}</p></div>
+          <div class="info-item"><label>Type / Upper</label><p>${prod.type || '—'}</p></div>
+          <div class="info-item"><label>Group</label><p>${prod.group || '—'}</p></div>
+          <div class="info-item"><label>Company</label><p>${prod.company || '—'}</p></div>
         </div>
-        ${colors?`<div class="info-item" style="margin-bottom:14px;"><label>Colors</label><div class="colors-list">${colors}</div></div>`:''}
-        ${breakdown?`<button class="breakdown-toggle" onclick="toggleBreakdown(this)">📍 Show Location Breakdown</button>
-        <div class="hidden" id="breakdown"><table class="breakdown-table"><thead><tr><th>Location</th><th>Color</th><th>Qty</th></tr></thead><tbody>${breakdown}</tbody></table></div>`:''}
+        ${colors ? `<div class="info-item" style="margin-bottom:14px;"><label>Colors</label><div class="colors-list">${colors}</div></div>` : ''}
+        ${breakdown ? `<button class="breakdown-toggle" onclick="toggleBreakdown(this)">📍 Show Location Breakdown</button>
+        <div class="hidden" id="breakdown"><table class="breakdown-table"><thead><tr><th>Location</th><th>Color</th><th>Qty</th></tr></thead><tbody>${breakdown}</tbody></table></div>` : ''}
         <div class="upload-btn-wrap">
           <label class="upload-btn" id="searchImgBtn">
-            📷 ${prod.image?'Change':'Upload'} Image
+            📷 ${prod.image ? 'Change' : 'Upload'} Image
             <input type="file" accept="image/*" class="hidden" onchange="uploadImgForModel('${prod.model}',this)"/>
           </label>
         </div>
@@ -341,114 +392,133 @@ function toggleBreakdown(btn) {
 }
 
 async function uploadImgForModel(model, input) {
-  const file = input.files[0]; if(!file) return;
+  const file = input.files[0]; if (!file) return;
   const btn = document.getElementById('searchImgBtn');
   btn.classList.add('loading');
-  btn.innerHTML = `<span class="spinner"></span> Uploading to Cloudinary...`;
+  btn.innerHTML = `<span class="spinner"></span> Uploading...`;
   try {
     const url = await uploadToCloudinary(file, model);
     db[model].image = url;
-    saveDB();
-    toast('✅ Image uploaded & saved!');
+    await saveToFirebase(model, db[model]); // ✅ Save to Firebase
+    toast('✅ Image uploaded & saved to cloud!');
     doSearch();
   } catch(e) {
-    toast('❌ Upload failed. Check preset / file size.');
+    toast('❌ Upload failed: ' + e.message);
     btn.classList.remove('loading');
     btn.innerHTML = `📷 ${db[model].image ? 'Change' : 'Upload'} Image`;
   }
 }
 
-// ---- EXCEL ----
+// ============================================================
+// EXCEL UPLOAD → FIREBASE
+// ============================================================
 function handleExcel(input) {
-  const file = input.files[0]; if(!file) return;
+  const file = input.files[0]; if (!file) return;
   const statusEl = document.getElementById('uploadStatus');
-  statusEl.innerHTML=`<p style="margin-top:14px;color:var(--text-muted);">⏳ Processing Excel file...</p>`;
+  statusEl.innerHTML = `<p style="margin-top:14px;color:var(--text-muted);">⏳ Processing Excel file...</p>`;
   const r = new FileReader();
-  r.onload = e => {
+  r.onload = async e => {
     try {
-      const wb = XLSX.read(e.target.result, {type:'binary'});
+      const wb = XLSX.read(e.target.result, { type: 'binary' });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
-      if(!rows.length) { statusEl.innerHTML=`<p style="color:red;margin-top:12px;">No data found.</p>`; return; }
-      let updated=0, added=0;
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (!rows.length) { statusEl.innerHTML = `<p style="color:red;margin-top:12px;">No data found.</p>`; return; }
+
+      // Aggregate rows by MODEL
       const agg = {};
       rows.forEach(row => {
-        const model = String(row['MODEL']||'').trim().toUpperCase();
-        if(!model) return;
-        const qty = parseFloat(row['CLOSING STOCK']||0)||0;
-        if(!agg[model]) {
+        const model = String(row['MODEL'] || '').trim().toUpperCase();
+        if (!model) return;
+        const qty = parseFloat(row['CLOSING STOCK'] || 0) || 0;
+        if (!agg[model]) {
           agg[model] = {
-            model, totalStock:0, colors:new Set(), breakdown:[],
-            supplier:String(row['SUPPLIER']||''), brand:String(row['BRAND']||''),
-            brandName:String(row['Brand Name']||''), sole:String(row['SOLE']||''),
-            type:String(row['TYPE']||''), group:String(row['GROUP']||''),
-            sgroup:String(row['SGROUP']||''), company:String(row['COMPANY']||''),
-            item:String(row['ITEM']||'')
+            model, totalStock: 0, colors: [], breakdown: [],
+            supplier: String(row['SUPPLIER'] || ''), brand: String(row['BRAND'] || ''),
+            brandName: String(row['Brand Name'] || ''), sole: String(row['SOLE'] || ''),
+            type: String(row['TYPE'] || ''), group: String(row['GROUP'] || ''),
+            sgroup: String(row['SGROUP'] || ''), company: String(row['COMPANY'] || ''),
+            item: String(row['ITEM'] || '')
           };
         }
         agg[model].totalStock += qty;
-        const color = String(row['COLOR']||'').trim();
-        if(color) agg[model].colors.add(color);
-        agg[model].breakdown.push({loc:String(row['LOCATION']||''), color, qty});
+        const color = String(row['COLOR'] || '').trim();
+        if (color && !agg[model].colors.includes(color)) agg[model].colors.push(color);
+        agg[model].breakdown.push({ loc: String(row['LOCATION'] || ''), color, qty });
       });
+
+      statusEl.innerHTML = `<p style="margin-top:14px;color:var(--text-muted);">⏳ Saving ${Object.keys(agg).length} products to Firebase...</p>`;
+
+      // ✅ Save each model to Firebase (preserve existing images)
+      let updated = 0, added = 0;
+      const batch = firestoreDB.batch();
       Object.values(agg).forEach(a => {
-        a.colors = [...a.colors];
-        const ex = db[a.model];
-        if(ex) { db[a.model] = {...a, image: ex.image||null}; updated++; }
-        else { db[a.model] = {...a, image:null}; added++; }
+        const existing = db[a.model];
+        const finalData = { ...a, image: existing?.image || null };
+        db[a.model] = finalData;
+        batch.set(productsCol.doc(a.model), finalData);
+        if (existing) updated++; else added++;
       });
-      saveDB();
-      statusEl.innerHTML=`<div class="upload-info" style="margin-top:16px;">✅ <strong>Upload successful!</strong><br>${added} new models added, ${updated} updated.<br><span style="font-size:12px;">All Cloudinary images preserved.</span></div>`;
+      await batch.commit(); // One network call for all models — fast!
+
+      // Update status badge
+      document.getElementById('db-status').textContent = `✅ ${Object.keys(db).length} products`;
+
+      statusEl.innerHTML = `<div class="upload-info" style="margin-top:16px;">✅ <strong>Upload successful!</strong><br>${added} new models added, ${updated} updated.<br><span style="font-size:12px;">All Cloudinary images preserved. Data saved to Firebase cloud.</span></div>`;
       toast(`Stock updated: ${added} added, ${updated} updated`);
-      input.value='';
+      input.value = '';
     } catch(err) {
-      statusEl.innerHTML=`<p style="color:red;margin-top:12px;">Error: ${err.message}</p>`;
+      console.error(err);
+      statusEl.innerHTML = `<p style="color:red;margin-top:12px;">Error: ${err.message}</p>`;
     }
   };
   r.readAsBinaryString(file);
 }
 
-// ---- CATALOG ----
-let catalogFilter='';
-function filterCatalog(v) { catalogFilter=v.toLowerCase(); renderCatalog(); }
+// ============================================================
+// CATALOG
+// ============================================================
+let catalogFilter = '';
+function filterCatalog(v) { catalogFilter = v.toLowerCase(); renderCatalog(); }
 function renderCatalog() {
   const grid = document.getElementById('catalogGrid');
   const items = Object.values(db).filter(p =>
     !catalogFilter ||
-    p.model.toLowerCase().includes(catalogFilter)||
-    (p.brand||'').toLowerCase().includes(catalogFilter)||
-    (p.supplier||'').toLowerCase().includes(catalogFilter)
+    p.model.toLowerCase().includes(catalogFilter) ||
+    (p.brand || '').toLowerCase().includes(catalogFilter) ||
+    (p.supplier || '').toLowerCase().includes(catalogFilter)
   );
-  if(!items.length) { grid.innerHTML=`<div class="empty" style="grid-column:1/-1"><div class="icon">📦</div><p>No products yet.</p></div>`; return; }
-  grid.innerHTML=items.map(p=>`
+  if (!items.length) { grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="icon">📦</div><p>No products yet.</p></div>`; return; }
+  grid.innerHTML = items.map(p => `
     <div class="cat-card" onclick="goSearch('${p.model}')">
-      ${p.image?`<img src="${p.image}" alt="${p.model}"/>`:`<div class="no-img">👟</div>`}
+      ${p.image ? `<img src="${p.image}" alt="${p.model}"/>` : `<div class="no-img">👟</div>`}
       <div class="cat-info">
         <div class="model-no">${p.model}</div>
-        <div class="brand">${p.brandName||p.brand||'—'}</div>
-        <div class="stock">Stock: ${p.totalStock||0}</div>
+        <div class="brand">${p.brandName || p.brand || '—'}</div>
+        <div class="stock">Stock: ${p.totalStock || 0}</div>
       </div>
     </div>`).join('');
 }
 
 function goSearch(model) {
-  document.getElementById('searchInput').value=model;
+  document.getElementById('searchInput').value = model;
   tab('search', document.querySelectorAll('nav button')[0]);
   doSearch();
 }
 
-// ---- MANAGE ----
+// ============================================================
+// MANAGE
+// ============================================================
 function renderManage() {
   const list = document.getElementById('manageList');
   const items = Object.values(db);
-  if(!items.length) { list.innerHTML=`<div class="empty"><div class="icon">⚙️</div><p>No products yet.</p></div>`; return; }
-  list.innerHTML=items.map(p=>`
+  if (!items.length) { list.innerHTML = `<div class="empty"><div class="icon">⚙️</div><p>No products yet.</p></div>`; return; }
+  list.innerHTML = items.map(p => `
     <div class="manage-item">
-      ${p.image?`<img src="${p.image}" alt="${p.model}"/>`:`<div class="m-no-img">👟</div>`}
+      ${p.image ? `<img src="${p.image}" alt="${p.model}"/>` : `<div class="m-no-img">👟</div>`}
       <div class="m-info">
         <strong>${p.model}</strong>
-        <span>${p.brandName||p.brand||'—'} · ${p.supplier||'—'}</span>
-        <span>Stock: ${p.totalStock||0}</span>
+        <span>${p.brandName || p.brand || '—'} · ${p.supplier || '—'}</span>
+        <span>Stock: ${p.totalStock || 0}</span>
       </div>
       <div class="m-actions">
         <button class="btn btn-edit" onclick="openEditModal('${p.model}')">Edit</button>
@@ -457,89 +527,105 @@ function renderManage() {
     </div>`).join('');
 }
 
-function deleteProduct(model) {
-  if(!confirm(`Delete ${model}? This cannot be undone.`)) return;
-  delete db[model]; saveDB(); renderManage(); toast('Product deleted.');
+async function deleteProduct(model) {
+  if (!confirm(`Delete ${model}? This cannot be undone.`)) return;
+  try {
+    await deleteFromFirebase(model);
+    delete db[model];
+    renderManage();
+    toast('Product deleted.');
+    document.getElementById('db-status').textContent = `✅ ${Object.keys(db).length} products`;
+  } catch(e) {
+    toast('❌ Delete failed: ' + e.message);
+  }
 }
 
-// ---- MODAL ----
+// ============================================================
+// MODAL
+// ============================================================
 function openAddModal() {
-  editingModel=null; pendingImgFile=null;
-  document.getElementById('modalTitle').textContent='Add Product';
-  ['fModel','fBrand','fBrandName','fSupplier','fSole','fType','fGroup'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('fStock').value=0;
-  document.getElementById('fModel').disabled=false;
-  document.getElementById('fImgPreview').style.display='none';
-  document.getElementById('fImgStatus').textContent='';
-  document.getElementById('fImage').value='';
+  editingModel = null; pendingImgFile = null;
+  document.getElementById('modalTitle').textContent = 'Add Product';
+  ['fModel','fBrand','fBrandName','fSupplier','fSole','fType','fGroup'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('fStock').value = 0;
+  document.getElementById('fModel').disabled = false;
+  document.getElementById('fImgPreview').style.display = 'none';
+  document.getElementById('fImgStatus').textContent = '';
+  document.getElementById('fImage').value = '';
   document.getElementById('modalOverlay').classList.add('open');
 }
 
 function openEditModal(model) {
-  editingModel=model; pendingImgFile=null;
-  const p=db[model];
-  document.getElementById('modalTitle').textContent='Edit Product';
-  document.getElementById('fModel').value=p.model; document.getElementById('fModel').disabled=true;
-  document.getElementById('fBrand').value=p.brand||'';
-  document.getElementById('fBrandName').value=p.brandName||'';
-  document.getElementById('fSupplier').value=p.supplier||'';
-  document.getElementById('fSole').value=p.sole||'';
-  document.getElementById('fType').value=p.type||'';
-  document.getElementById('fGroup').value=p.group||'';
-  document.getElementById('fStock').value=p.totalStock||0;
-  document.getElementById('fImgStatus').textContent='';
-  document.getElementById('fImage').value='';
-  const prev=document.getElementById('fImgPreview');
-  if(p.image){prev.src=p.image;prev.style.display='block';}else{prev.style.display='none';}
+  editingModel = model; pendingImgFile = null;
+  const p = db[model];
+  document.getElementById('modalTitle').textContent = 'Edit Product';
+  document.getElementById('fModel').value = p.model; document.getElementById('fModel').disabled = true;
+  document.getElementById('fBrand').value = p.brand || '';
+  document.getElementById('fBrandName').value = p.brandName || '';
+  document.getElementById('fSupplier').value = p.supplier || '';
+  document.getElementById('fSole').value = p.sole || '';
+  document.getElementById('fType').value = p.type || '';
+  document.getElementById('fGroup').value = p.group || '';
+  document.getElementById('fStock').value = p.totalStock || 0;
+  document.getElementById('fImgStatus').textContent = '';
+  document.getElementById('fImage').value = '';
+  const prev = document.getElementById('fImgPreview');
+  if (p.image) { prev.src = p.image; prev.style.display = 'block'; } else { prev.style.display = 'none'; }
   document.getElementById('modalOverlay').classList.add('open');
 }
 
 function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
 
 function previewModalImg(input) {
-  const file=input.files[0]; if(!file) return;
-  pendingImgFile=file;
-  const r=new FileReader();
-  r.onload=e=>{const img=document.getElementById('fImgPreview');img.src=e.target.result;img.style.display='block';};
+  const file = input.files[0]; if (!file) return;
+  pendingImgFile = file;
+  const r = new FileReader();
+  r.onload = e => { const img = document.getElementById('fImgPreview'); img.src = e.target.result; img.style.display = 'block'; };
   r.readAsDataURL(file);
-  document.getElementById('fImgStatus').textContent='Image selected — will upload on Save.';
+  document.getElementById('fImgStatus').textContent = 'Image selected — will upload on Save.';
 }
 
 async function saveProduct() {
-  const model=(editingModel||document.getElementById('fModel').value.trim().toUpperCase());
-  if(!model){alert('Model number is required.');return;}
-  const btn=document.getElementById('saveBtn');
-  btn.disabled=true; btn.innerHTML=`<span class="spinner"></span> Saving...`;
+  const model = (editingModel || document.getElementById('fModel').value.trim().toUpperCase());
+  if (!model) { alert('Model number is required.'); return; }
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Saving...`;
   try {
-    let imgUrl=null;
-    if(pendingImgFile) {
-      document.getElementById('fImgStatus').textContent='Uploading image to Cloudinary...';
-      imgUrl=await uploadToCloudinary(pendingImgFile, model);
+    let imgUrl = null;
+    if (pendingImgFile) {
+      document.getElementById('fImgStatus').textContent = 'Uploading image to Cloudinary...';
+      imgUrl = await uploadToCloudinary(pendingImgFile, model);
     }
-    const existing=db[model]||{};
-    db[model]={
+    const existing = db[model] || {};
+    const productData = {
       ...existing, model,
-      brand:document.getElementById('fBrand').value.trim(),
-      brandName:document.getElementById('fBrandName').value.trim(),
-      supplier:document.getElementById('fSupplier').value.trim(),
-      sole:document.getElementById('fSole').value.trim(),
-      type:document.getElementById('fType').value.trim(),
-      group:document.getElementById('fGroup').value.trim(),
-      totalStock:parseFloat(document.getElementById('fStock').value)||0,
-      image:imgUrl!==null?imgUrl:(existing.image||null),
-      colors:existing.colors||[], breakdown:existing.breakdown||[]
+      brand: document.getElementById('fBrand').value.trim(),
+      brandName: document.getElementById('fBrandName').value.trim(),
+      supplier: document.getElementById('fSupplier').value.trim(),
+      sole: document.getElementById('fSole').value.trim(),
+      type: document.getElementById('fType').value.trim(),
+      group: document.getElementById('fGroup').value.trim(),
+      totalStock: parseFloat(document.getElementById('fStock').value) || 0,
+      image: imgUrl !== null ? imgUrl : (existing.image || null),
+      colors: existing.colors || [],
+      breakdown: existing.breakdown || []
     };
-    saveDB();
+    db[model] = productData;
+    await saveToFirebase(model, productData); // ✅ Save to Firebase
     closeModal(); renderManage();
-    toast(editingModel?'✅ Product updated!':'✅ Product added!');
+    document.getElementById('db-status').textContent = `✅ ${Object.keys(db).length} products`;
+    toast(editingModel ? '✅ Product updated!' : '✅ Product added!');
   } catch(e) {
-    document.getElementById('fImgStatus').textContent='❌ Image upload failed. Try again.';
-    toast('❌ Upload failed.');
+    document.getElementById('fImgStatus').textContent = '❌ Failed: ' + e.message;
+    toast('❌ Save failed.');
   }
-  btn.disabled=false; btn.textContent='Save';
+  btn.disabled = false; btn.textContent = 'Save';
 }
 
-renderCatalog();
+// ============================================================
+// START — Load data from Firebase
+// ============================================================
+loadFromFirebase();
 </script>
 </body>
 </html>
