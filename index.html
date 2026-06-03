@@ -472,44 +472,74 @@ function handleExcel(input) {
         return;
       }
 
-      const agg = {};
+const agg = {};
 
-      rows.forEach(row => {
+rows.forEach(row => {
 
-if (!agg[model]) {
-  agg[model] = {
-    model,
-    totalStock: 0,
-    colors: [],
-    breakdown: [],
-    supplier: String(row['SUPPLIER'] || ''),
-    brand: String(row['BRAND'] || ''),
-    brandName: String(row['Brand Name'] || ''),
-    sole: String(row['SOLE'] || ''),
-    type: String(row['TYPE'] || ''),
-    group: String(row['GROUP'] || ''),
-    sgroup: String(row['SGROUP'] || ''),
-    company: String(row['COMPANY'] || ''),
-    item: String(row['ITEM'] || '')
-  };
-}
+  const model = String(row['MODEL'] || '')
+    .trim()
+    .toUpperCase();
 
-agg[model].totalStock += qty;
+  if (!model) return;
 
-const color = String(row['COLOR'] || '').trim();
-const location = String(row['LOCATION'] || '').trim();
+  const qty = Number(row['CLOSING STOCK'] || 0);
 
-if (color && !agg[model].colors.includes(color)) {
-  agg[model].colors.push(color);
-}
+  if (!agg[model]) {
+    agg[model] = {
+      model,
+      totalStock: 0,
 
-agg[model].breakdown.push({
-  loc: location,
-  color: color,
-  qty: qty
+      supplier: String(row['SUPPLIER'] || ''),
+      brand: String(row['BRAND'] || ''),
+      brandName: String(row['Brand Name'] || ''),
+      sole: String(row['SOLE'] || ''),
+      type: String(row['TYPE'] || ''),
+      group: String(row['GROUP'] || ''),
+      sgroup: String(row['SGROUP'] || ''),
+      company: String(row['COMPANY'] || ''),
+      item: String(row['ITEM'] || ''),
+
+      colors: [],
+      locationMap: {}
+    };
+  }
+
+  agg[model].totalStock += qty;
+
+  const color = String(row['COLOR'] || '').trim();
+  const location = String(row['LOCATION'] || '').trim();
+
+  if (
+    color &&
+    !agg[model].colors.includes(color)
+  ) {
+    agg[model].colors.push(color);
+  }
+
+  const key = `${location}|${color}`;
+
+  agg[model].locationMap[key] =
+    (agg[model].locationMap[key] || 0) + qty;
 });
+
+      Object.values(agg).forEach(product => {
+
+  product.breakdown =
+    Object.entries(product.locationMap)
+      .map(([key, qty]) => {
+
+        const [loc, color] = key.split('|');
+
+        return {
+          loc,
+          color,
+          qty
+        };
       });
 
+  delete product.locationMap;
+});
+      
       statusEl.innerHTML =
         `<p style="margin-top:14px;color:var(--text-muted);">
           ⏳ Saving ${Object.keys(agg).length} products to Firebase...
