@@ -357,6 +357,39 @@ function doSearch() {
   }
   const colors = (prod.colors || []).map(c => `<span class="color-tag">${c}</span>`).join('');
   const breakdown = (prod.breakdown || []).map(r => `<tr><td>${r.loc}</td><td>${r.color}</td><td>${r.qty}</td></tr>`).join('');
+  const colorSection = colors ? `
+<button class="breakdown-toggle"
+        onclick="toggleSection('colorsSection')">
+🎨 Show Colors
+</button>
+
+<div id="colorsSection" class="hidden">
+  <div class="colors-list">
+    ${colors}
+  </div>
+</div>
+` : '';
+  const locationSection = breakdown ? `
+<button class="breakdown-toggle"
+        onclick="toggleSection('locationSection')">
+📍 Show Location Breakdown
+</button>
+
+<div id="locationSection" class="hidden">
+<table class="breakdown-table">
+<thead>
+<tr>
+<th>Location</th>
+<th>Color</th>
+<th>Qty</th>
+</tr>
+</thead>
+<tbody>
+${breakdown}
+</tbody>
+</table>
+</div>
+` : '';
   el.innerHTML = `
     <div class="result-card">
       ${prod.image ? `<img class="img-area" src="${prod.image}" alt="Product"/>` : `<div class="img-placeholder"><div class="icon">👟</div><p>No image uploaded</p></div>`}
@@ -385,10 +418,9 @@ function doSearch() {
     </div>`;
 }
 
-function toggleBreakdown(btn) {
-  const el = document.getElementById('breakdown');
+function toggleSection(id) {
+  const el = document.getElementById(id);
   el.classList.toggle('hidden');
-  btn.textContent = el.classList.contains('hidden') ? '📍 Show Location Breakdown' : '📍 Hide Location Breakdown';
 }
 
 async function uploadImgForModel(model, input) {
@@ -444,43 +476,38 @@ function handleExcel(input) {
 
       rows.forEach(row => {
 
-        const model = String(row['MODEL'] || '')
-          .trim()
-          .toUpperCase();
+if (!agg[model]) {
+  agg[model] = {
+    model,
+    totalStock: 0,
+    colors: [],
+    breakdown: [],
+    supplier: String(row['SUPPLIER'] || ''),
+    brand: String(row['BRAND'] || ''),
+    brandName: String(row['Brand Name'] || ''),
+    sole: String(row['SOLE'] || ''),
+    type: String(row['TYPE'] || ''),
+    group: String(row['GROUP'] || ''),
+    sgroup: String(row['SGROUP'] || ''),
+    company: String(row['COMPANY'] || ''),
+    item: String(row['ITEM'] || '')
+  };
+}
 
-        if (!model) return;
+agg[model].totalStock += qty;
 
-        const qty =
-          parseFloat(row['CLOSING STOCK'] || 0) || 0;
+const color = String(row['COLOR'] || '').trim();
+const location = String(row['LOCATION'] || '').trim();
 
-        if (!agg[model]) {
-          agg[model] = {
-            model,
-            totalStock: 0,
-            colors: [],
-            supplier: String(row['SUPPLIER'] || ''),
-            brand: String(row['BRAND'] || ''),
-            brandName: String(row['Brand Name'] || ''),
-            sole: String(row['SOLE'] || ''),
-            type: String(row['TYPE'] || ''),
-            group: String(row['GROUP'] || ''),
-            sgroup: String(row['SGROUP'] || ''),
-            company: String(row['COMPANY'] || ''),
-            item: String(row['ITEM'] || '')
-          };
-        }
+if (color && !agg[model].colors.includes(color)) {
+  agg[model].colors.push(color);
+}
 
-        agg[model].totalStock += qty;
-
-        const color = String(row['COLOR'] || '').trim();
-
-        if (
-          color &&
-          !agg[model].colors.includes(color)
-        ) {
-          agg[model].colors.push(color);
-        }
-
+agg[model].breakdown.push({
+  loc: location,
+  color: color,
+  qty: qty
+});
       });
 
       statusEl.innerHTML =
@@ -509,21 +536,22 @@ function handleExcel(input) {
 
           const existing = db[a.model];
 
-          const finalData = {
-            model: a.model,
-            totalStock: a.totalStock,
-            colors: a.colors || [],
-            supplier: a.supplier || '',
-            brand: a.brand || '',
-            brandName: a.brandName || '',
-            sole: a.sole || '',
-            type: a.type || '',
-            group: a.group || '',
-            sgroup: a.sgroup || '',
-            company: a.company || '',
-            item: a.item || '',
-            image: existing?.image || null
-          };
+const finalData = {
+  model: a.model,
+  totalStock: a.totalStock,
+  colors: a.colors || [],
+  breakdown: a.breakdown || [],
+  supplier: a.supplier || '',
+  brand: a.brand || '',
+  brandName: a.brandName || '',
+  sole: a.sole || '',
+  type: a.type || '',
+  group: a.group || '',
+  sgroup: a.sgroup || '',
+  company: a.company || '',
+  item: a.item || '',
+  image: existing?.image || null
+};
 
           db[a.model] = finalData;
 
