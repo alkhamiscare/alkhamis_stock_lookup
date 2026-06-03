@@ -406,9 +406,28 @@ ${breakdown}
           <div class="info-item"><label>Company</label><p>${prod.company || '—'}</p></div>
         </div>
         ${colors ? `<div class="info-item" style="margin-bottom:14px;"><label>Colors</label><div class="colors-list">${colors}</div></div>` : ''}
-        ${breakdown ? `<button class="breakdown-toggle" onclick="toggleBreakdown(this)">📍 Show Location Breakdown</button>
-        <div class="hidden" id="breakdown"><table class="breakdown-table"><thead><tr><th>Location</th><th>Color</th><th>Qty</th></tr></thead><tbody>${breakdown}</tbody></table></div>` : ''}
-        <div class="upload-btn-wrap">
+        ${breakdown ? `
+<button class="breakdown-toggle"
+onclick="toggleBreakdown(this)">
+📍 Show Location Breakdown
+</button>
+
+<div class="hidden">
+<table class="breakdown-table">
+<thead>
+<tr>
+<th>Location</th>
+<th>Color</th>
+<th>Qty</th>
+</tr>
+</thead>
+<tbody>
+${breakdown}
+</tbody>
+</table>
+</div>
+` : ''}
+<div class="upload-btn-wrap">
           <label class="upload-btn" id="searchImgBtn">
             📷 ${prod.image ? 'Change' : 'Upload'} Image
             <input type="file" accept="image/*" class="hidden" onchange="uploadImgForModel('${prod.model}',this)"/>
@@ -421,6 +440,19 @@ ${breakdown}
 function toggleSection(id) {
   const el = document.getElementById(id);
   el.classList.toggle('hidden');
+}
+
+function toggleBreakdown(btn) {
+
+  const table =
+    btn.nextElementSibling;
+
+  table.classList.toggle('hidden');
+
+  btn.textContent =
+    table.classList.contains('hidden')
+      ? '📍 Show Location Breakdown'
+      : '📍 Hide Location Breakdown';
 }
 
 async function uploadImgForModel(model, input) {
